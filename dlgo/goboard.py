@@ -4,6 +4,13 @@ from dlgo.gotypes import Player
 from dlgo.gotypes import Point
 from dlgo.scoring import compute_game_result
 
+__all__ = [
+    'Board',
+    'GameState',
+    'Move',
+    'GoString'
+]
+
 class Board():
     def __init__(self, num_rows, num_cols):
         self.num_rows = num_rows
