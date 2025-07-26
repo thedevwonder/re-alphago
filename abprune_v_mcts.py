@@ -1,4 +1,4 @@
-from dlgo import agent
+from dlgo import agent, mcts, minimax
 from dlgo import goboard as goboard
 from dlgo import gotypes
 from dlgo.utils import print_board, print_move
@@ -6,18 +6,33 @@ import time
 import uuid
 import os
 
+def capture_diff(game_state):
+    black_stones = 0
+    white_stones = 0
+    for r in range(1, game_state.board.num_rows + 1):
+        for c in range(1, game_state.board.num_cols + 1):
+            p = gotypes.Point(r, c)
+            color = game_state.board.get(p)
+            if color == gotypes.Player.black:
+                black_stones += 1
+            elif color == gotypes.Player.white:
+                white_stones += 1
+    diff = black_stones - white_stones
+    if game_state.next_player == gotypes.Player.black:
+        return diff
+    return -1 * diff
 
 def main():
     
     board_size = 9
     game = goboard.GameState.new_game(board_size)
     bots = {
-        gotypes.Player.black: agent.FastRandomBot(),
-        gotypes.Player.white: agent.FastRandomBot(),
+        gotypes.Player.black: mcts.MCTSAgent(temperature=1.41, num_rounds=50),
+        gotypes.Player.white: minimax.AlphaBetaAgent(max_depth=3, eval_fn=capture_diff),
     }
     # Generate random game id and SGF file
     game_id = str(uuid.uuid4())
-    sgf_path = os.path.join('games', f'b_v_b_{game_id}.sgf')
+    sgf_path = os.path.join('games', f'abprune_v_mcts_{game_id}.sgf')
     with open(sgf_path, 'w') as sgf_file:
         sgf_file.write(f"(;GM[1]FF[4]SZ[{board_size}]\n")
         while not game.is_over():

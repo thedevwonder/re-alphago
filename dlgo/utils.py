@@ -8,15 +8,27 @@ STONE_TO_CHAR = {
     gotypes.Player.white: ' o ',
 }
 
+def point_to_sgf_coords(point):
+    # SGF coords: 'a' for 1, 'b' for 2, ...
+    return chr(ord('a') + point.col - 1) + chr(ord('a') + point.row - 1)
 
-def print_move(player, move):
+
+def print_move(player, move, return_sgf=False, sgf_file=None):
     if move.is_pass:
         move_str = 'passes'
+        sgf_str = f';{"B" if player == gotypes.Player.black else "W"}[]'
     elif move.is_resign:
         move_str = 'resigns'
+        sgf_str = f'C[{player} resigns]'
     else:
         move_str = '%s%d' % (COLS[move.point.col - 1], move.point.row)
+        color = 'B' if player == gotypes.Player.black else 'W'
+        coords = point_to_sgf_coords(move.point)
+        sgf_str = f';{color}[{coords}]'
     print('%s %s' % (player, move_str))
+    if sgf_file is not None and sgf_str:
+        print(sgf_str)
+        sgf_file.write(sgf_str + "\n")
 
 
 def print_board(board):

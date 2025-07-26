@@ -1,2 +1,5 @@
 dlgo/__pycache__
 dlgo/agent/__pycache__
+dlgo/mcts/__pycache__
+dlgo/minimax/__pycache__
+games/*

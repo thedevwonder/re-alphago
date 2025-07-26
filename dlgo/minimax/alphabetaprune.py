@@ -25,7 +25,7 @@ def alpha_beta_result(game_state, max_depth, best_black, best_white, eval_fn):
     best_result_so_far = MIN
     for move in game_state.legal_moves():
         next_game_state = game_state.apply_move(move)
-        opponent_best_result = alpha_beta_result(next_game_state, max_depth=max_depth-1, eval_fn=eval_fn)
+        opponent_best_result = alpha_beta_result(next_game_state, max_depth=max_depth-1, eval_fn=eval_fn, best_black=best_black, best_white=best_white)
         our_best_result = -1*opponent_best_result
         if our_best_result > best_result_so_far:
             best_result_so_far = our_best_result
@@ -46,18 +46,17 @@ def alpha_beta_result(game_state, max_depth, best_black, best_white, eval_fn):
             We prune this branch.
         '''
         if game_state.next_player == Player.white:
-            if best_result_so_far > best_white:                       # <8>
-                best_white = best_result_so_far                       # <8>
-            outcome_for_black = -1 * best_result_so_far               # <9>
-            if outcome_for_black < best_black:                 # <9>
-                return best_result_so_far                             # <9>
-# end::alpha-beta-prune-2[]
-# tag::alpha-beta-prune-3[]
+            if best_result_so_far > best_white:                       
+                best_white = best_result_so_far                       
+            outcome_for_black = -1 * best_result_so_far               
+            if outcome_for_black < best_black:                 
+                return best_result_so_far                             
+
         elif game_state.next_player == Player.black:
-            if best_result_so_far > best_black:                       # <10>
-                best_black = best_result_so_far                       # <10>
-            outcome_for_white = -1 * best_result_so_far               # <11>
-            if outcome_for_white < best_white:                 # <11>
+            if best_result_so_far > best_black:                       
+                best_black = best_result_so_far                       
+            outcome_for_white = -1 * best_result_so_far               
+            if outcome_for_white < best_white:                 
                 return best_result_so_far 
             
     return best_result_so_far
