@@ -8,13 +8,17 @@ import gzip
 import os
 
 
+__all__ = [
+    'DataProcessor'
+]
+
 class DataProcessor:
     def __init__(self, encoder, data_dir):
         self.encoder = get_encoder_by_name(encoder, 19)
         self.data_dir = data_dir
     
     def process_sgf_files(self, zip_file_name = None, file_list = None):
-
+        board_size = 19
         zip_file = None
         if zip_file_name is not None:
             # remove gzip compression
@@ -23,22 +27,17 @@ class DataProcessor:
             zip_file = tarfile.open(self.data_dir + '/' + tar_file)
             # get name of all files
             file_list = zip_file.getnames()
-        no_of_files = len(file_list)
-        # divide training and test 80/20
-        game_list = range(no_of_files)
-        split_index = int(0.8 * no_of_files)
-        training_list = game_list[:split_index]
-        test_list = game_list[split_index:]
         # total number of moves
-        total_examples = self.num_total_examples(zip_file, file_list, game_list=training_list)
+        print(f"zip_file: {zip_file_name}")
+        total_examples = self.num_total_examples(zip_file, file_list)
+        print(f"total examples: {total_examples}")
         shape = self.encoder.shape()
         feature_shape = np.insert(shape, 0, np.asarray([total_examples]))
         features = np.zeros(feature_shape)
         labels = np.zeros((total_examples,))
         
         counter = 0
-        for index in training_list:
-            name = file_list[index+1]
+        for name in file_list[1:]:
             # read sgf content as string
             if zip_file:
                 with zip_file.extractfile(name) as file:
@@ -50,21 +49,14 @@ class DataProcessor:
             # create sgf game from string. 
             # parses the string and creates a Sgf_Game object
             sgf = Sgf_game.from_string(sgf_content)
-            go_board = Board(19, 19)
+            board_size = sgf.get_size()
+            go_board = Board(board_size, board_size)
             move = None
-            game_state = GameState.new_game(19)
+            game_state = GameState.new_game(board_size)
 
             # Now we get the sgf game object to replay each move
-
+            # we play handicap moves first and get the game state
             game_state, first_move_done = self.get_handicap(sgf)
-            # first we place handicap stones to give weaker (black) some advantage
-            if sgf.get_handicap() is not None and sgf.get_handicap() != 0:
-                for setup in sgf.get_root().get_setup_stones():
-                    for move in setup:
-                        row, col = move
-                        go_board.place_stone(Player.black, Point(row + 1, col + 1))  # black gets handicap
-                first_move_done = True
-                game_state = GameState(go_board, Player.white, None, move)
             
             # then we play the moves from the sequence
             # for every game state, we encode the game state and append to features
@@ -75,6 +67,7 @@ class DataProcessor:
                 if color is not None:
                     if move_tuple is not None:
                         row, col = move_tuple
+                        # point has 1 based indexing
                         point = Point(row + 1, col + 1)
                         move = Move.play(point)
                     else:
@@ -87,35 +80,38 @@ class DataProcessor:
                     first_move_done = True
 
         # Save the processed data
-        base_name = zip_file_name.replace('.tar.gz', '') if zip_file_name else 'KGS-2019_04-19-1255-'
-        data_file_name = self.data_dir + '/' + base_name + '_train'
-        feature_file_template = data_file_name + '_features_%d'
-        label_file_template = data_file_name + '_labels_%d'
-        chunk = 0
-        chunksize = 1024
-        # divide if the shape is > 1024
-        while features.shape[0] >= chunksize:
-            feature_file = feature_file_template % chunk
-            label_file = label_file_template % chunk
-            chunk += 1
-            current_features, features = features[:chunksize], features[chunksize:]
-            current_labels, labels = labels[:chunksize], labels[chunksize:]
-            np.save(feature_file, current_features)
-            np.save(label_file, current_labels)
-        if features.shape[0] > 0:
-            feature_file = feature_file_template % chunk
-            label_file = label_file_template % chunk
-            np.save(feature_file, features)
-            np.save(label_file, labels)
-        
+        base_name = zip_file_name.replace('.tar.gz', '') if zip_file_name else 'kgs-server-'
+        data_file_name = self.data_dir + '/' + base_name
+        train_feature_file_template = data_file_name + '_train_features'
+        train_label_file_template = data_file_name + '_train_labels'
+        test_feature_file_template = data_file_name + '_test_features'
+        test_label_file_template = data_file_name + '_test_labels'
+
+        indices = np.arange(len(features))
+        np.random.shuffle(indices)
+        split_idx = int(0.8 * len(features))
+        train_indices = indices[:split_idx]
+        test_indices = indices[split_idx:]
+
+        X_train = features[train_indices]
+        X_test = features[test_indices]
+        y_train = labels[train_indices]
+        y_test = labels[test_indices]
+
+        np.save(train_feature_file_template, X_train)
+        np.save(train_label_file_template, y_train)
+        np.save(test_feature_file_template, X_test)
+        np.save(test_label_file_template, y_test)
+
         return
+        
     """Total number of moves each player plays throughout all
        the games provided.
     """
-    def num_total_examples(self, zip_file, file_list, game_list):
+    def num_total_examples(self, zip_file, file_list):
         total_examples = 0
-        for index in game_list:
-            name = file_list[index + 1]
+        for name in file_list:
+            # read the file if the file is an sgf file
             if name.endswith('.sgf'):
                 if zip_file:
                     with zip_file.extractfile(name) as file:
@@ -123,7 +119,12 @@ class DataProcessor:
                 else:
                     with open(name, 'r') as file:
                         sgf_content = file.read()
+                # get an sgf string from the file for further processing
                 sgf = Sgf_game.from_string(sgf_content)
+
+                # this is important because we need to start counting after the first move
+                # if the game has handicap, then main sequence starts with 2nd move. otherwise,
+                # main sequence starts with first move and we need to skip it
                 game_state, first_move_done = self.get_handicap(sgf)
 
                 num_moves = 0
@@ -134,8 +135,6 @@ class DataProcessor:
                             num_moves += 1
                         first_move_done = True
                 total_examples = total_examples + num_moves
-            else:
-                raise ValueError(name + ' is not a valid sgf')
         return total_examples
     
     def unzip_data(self, zip_file_name):
@@ -150,10 +149,11 @@ class DataProcessor:
     
     @staticmethod
     def get_handicap(sgf):
-        go_board = Board(19, 19)
+        board_size = sgf.get_size()
+        go_board = Board(board_size, board_size)
         first_move_done = False
         move = None
-        game_state = GameState.new_game(19)
+        game_state = GameState.new_game(board_size)
         if sgf.get_handicap() is not None and sgf.get_handicap() != 0:
             for setup in sgf.get_root().get_setup_stones():
                 for move in setup:

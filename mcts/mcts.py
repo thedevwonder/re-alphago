@@ -58,7 +58,9 @@ class MCTSNode(object):
 class MCTSAgent(agent.Agent):
     def __init__(self, num_rounds, temperature):
         agent.Agent.__init__(self)
+        # num of simulations
         self.num_rounds = num_rounds
+        # temperature
         self.temperature = temperature
 
 
@@ -71,17 +73,18 @@ class MCTSAgent(agent.Agent):
         root = MCTSNode(game_state)        # for num_of_rounds, run the loop
         for i in range(self.num_rounds):
             node = root
+            # selection
             while (not node.can_add_child()) and (not node.is_terminal()):
                 node = self.select_child(node)
 
-            # Add a new child node into the tree.
+            # We select a random child out of unvisited children. selection
             if node.can_add_child():
                 node = node.add_random_child()
 
-            # Simulate a random game from this node.
+            # Simulate a random game from this node. Rollout
             winner = self.simulate_random_game(node.game_state)
 
-            # Propagate scores back up the tree.
+            # Propagate scores back up the tree. Backpropogation
             while node is not None:
                 node.record_win(winner)
                 node = node.parent
