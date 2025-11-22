@@ -12,6 +12,21 @@ __all__ = [
     'DataProcessor'
 ]
 
+transformations = [
+    'identity',
+    'rotate_90',       
+    'rotate_180',
+    'rotate_270',        
+    'flip_horizontal', 
+    'flip_vertical',
+    'flip_diagonal',
+    'flip_antidiagonal'           
+]
+
+'''Key points from the Alphago paper
+1. skip pass moves
+2. augment 8 symmetries and reflections to the dataset
+'''
 class DataProcessor:
     def __init__(self, encoder, data_dir):
         self.encoder = get_encoder_by_name(encoder, 19)
@@ -33,10 +48,12 @@ class DataProcessor:
         print(f"total examples: {total_examples}")
         shape = self.encoder.shape()
         feature_shape = np.insert(shape, 0, np.asarray([total_examples]))
-        features = np.zeros(feature_shape)
-        labels = np.zeros((total_examples,))
+        print("feature shape: ")
+        print(feature_shape)
+        features = []
+        labels = []
         
-        counter = 0
+        
         for name in file_list[1:]:
             # read sgf content as string
             if zip_file:
@@ -49,11 +66,7 @@ class DataProcessor:
             # create sgf game from string. 
             # parses the string and creates a Sgf_Game object
             sgf = Sgf_game.from_string(sgf_content)
-            board_size = sgf.get_size()
-            go_board = Board(board_size, board_size)
             move = None
-            game_state = GameState.new_game(board_size)
-
             # Now we get the sgf game object to replay each move
             # we play handicap moves first and get the game state
             game_state, first_move_done = self.get_handicap(sgf)
@@ -70,12 +83,17 @@ class DataProcessor:
                         # point has 1 based indexing
                         point = Point(row + 1, col + 1)
                         move = Move.play(point)
+                        # skipping first move
+                        if first_move_done:
+                            # augmenting 8 symmetrical transformations to features and labels - [2]
+                            for transformation in transformations:
+                                transformed_game_state = self.apply_transformation(game_state, transformation)
+                                transformed_point = self.transform_point(point, transformation, 19)
+                                features.append(self.encoder.encode(transformed_game_state)) 
+                                labels.append(self.encoder.encode_point(transformed_point))
+                    # skip on pass moves - [1]
                     else:
-                        move = Move.pass_turn()
-                    if first_move_done and point is not None:
-                        features[counter] = self.encoder.encode(game_state)
-                        labels[counter] = self.encoder.encode_point(point)
-                        counter += 1
+                        move = Move.pass_turn()    
                     game_state = game_state.apply_move(move)
                     first_move_done = True
 
@@ -88,10 +106,15 @@ class DataProcessor:
         test_label_file_template = data_file_name + '_test_labels'
 
         indices = np.arange(len(features))
-        np.random.shuffle(indices)
+        # training to test split ratio 4:1, Alphago originally uses first 1 million
+        # for the test while the rest 28.4 million for training. For simplicity we just split
+        # our set to 4:1 ration instead of 28:1
         split_idx = int(0.8 * len(features))
         train_indices = indices[:split_idx]
         test_indices = indices[split_idx:]
+
+        features = np.stack(features, axis=0)
+        labels = np.asarray(labels, dtype=np.int16)
 
         X_train = features[train_indices]
         X_test = features[test_indices]
@@ -152,15 +175,15 @@ class DataProcessor:
         board_size = sgf.get_size()
         go_board = Board(board_size, board_size)
         first_move_done = False
-        move = None
         game_state = GameState.new_game(board_size)
         if sgf.get_handicap() is not None and sgf.get_handicap() != 0:
             for setup in sgf.get_root().get_setup_stones():
-                for move in setup:
-                    row, col = move
+                for stone_tuple in setup:
+                    row, col = stone_tuple
                     go_board.place_stone(Player.black, Point(row + 1, col + 1))
             first_move_done = True
-            game_state = GameState(go_board, Player.white, None, move)
+            # Handicap stones aren't moves, so last_move should be None
+            game_state = GameState(go_board, Player.white, None, None)
         return game_state, first_move_done
     
     def combine_numpy_files(self, base_name, file_type, output_filename=None, matching_files = None):
@@ -202,5 +225,65 @@ class DataProcessor:
         np.save(output_path, final_data)
         print(f"Combined {file_type} saved to: {output_filename}")
         
-        return output_path       
+        return output_path 
+    def transform_point(self, point, transformation, board_size):
+        """Transform a point according to the given transformation."""
+        r, c = point.row, point.col
+        N = board_size
+        
+        if transformation == 'identity':
+            return Point(r, c)
+        elif transformation == 'rotate_90':
+            return Point(c, N + 1 - r)
+        elif transformation == 'rotate_180':
+            return Point(N + 1 - r, N + 1 - c)
+        elif transformation == 'rotate_270':
+            return Point(N + 1 - c, r)
+        elif transformation == 'flip_horizontal':
+            return Point(r, N + 1 - c)
+        elif transformation == 'flip_vertical':
+            return Point(N + 1 - r, c)
+        elif transformation == 'flip_diagonal':
+            return Point(c, r)
+        elif transformation == 'flip_antidiagonal':
+            return Point(N + 1 - c, N + 1 - r)
+        else:
+            raise ValueError(f"Unknown transformation: {transformation}")  
+
+    def apply_transformation(self, game_state, transformation):
+        """Apply a D8 transformation to a game_state and its previous state chain."""
+        board_size = game_state.board.num_rows
+        new_board = Board(board_size, board_size)
+        last_move = game_state.last_move
+        if last_move is not None and last_move.is_play:
+            last_point = last_move.point
+            transformed_last_point = self.transform_point(last_point, transformation, board_size)
+            last_move = Move.play(transformed_last_point)
+        elif last_move is not None and last_move.is_pass:
+            last_move = Move.pass_turn()
+        elif last_move is not None and last_move.is_resign:
+            last_move = Move.resign()
+        # If last_move is None, keep it as None
+        
+        # Iterate through all points on the original board
+        for row in range(1, board_size + 1):
+            for col in range(1, board_size + 1):
+                original_point = Point(row, col)
+                stone_color = game_state.board.get(original_point)
+                
+                if stone_color is not None:
+                    # Transform the point
+                    transformed_point = self.transform_point(original_point, transformation, board_size)
+                    # Place stone at transformed location
+                    new_board.place_stone(stone_color, transformed_point)
+        
+        # Recursively transform the previous state if it exists
+        transformed_previous_state = None
+        if game_state.previous_state is not None:
+            transformed_previous_state = self.apply_transformation(
+                game_state.previous_state, transformation
+            )
+        
+        # Create new GameState with transformed board and previous state
+        return GameState(new_board, game_state.next_player, transformed_previous_state, last_move)    
 

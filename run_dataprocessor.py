@@ -5,11 +5,9 @@ This script processes Go game data from SGF files and converts them into
 training data for machine learning models.
 """
 
-from asyncio import as_completed
 import os
-from site import execusercustomize
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add the current directory to Python path to import dlgo modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -45,8 +43,10 @@ def main():
         
         # Process the SGF files
         with ThreadPoolExecutor(max_workers=12) as executor:
-            futures = executor.map(lambda file: processor.process_sgf_files(zip_file_name=file), zip_files)
+            # Submit all tasks and get futures
+            futures = [executor.submit(processor.process_sgf_files, zip_file_name=file) for file in zip_files]
 
+            # Wait for completion
             for future in as_completed(futures):
                 future.result()
     
