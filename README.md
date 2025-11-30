@@ -1,4 +1,5 @@
 # An attempt to replicate the methods used in the AlphaGo paper
+## Mastering the game of Go with deep neural networks and tree search
 https://www.nature.com/articles/nature16961
 
 My inspiration to develop and learn about AlphaGo came from the documentary: [AlphaGo - The Movie | Full award-winning documentary](https://www.youtube.com/watch?v=WXuK6gekU1Y). This is my first-ever neural net written and trained. I have learnt this from scratch as I implemented this.
